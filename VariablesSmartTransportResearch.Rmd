@@ -1,0 +1,458 @@
+---
+title: "VariablesSmartTransportResearch"
+author: "Yuhei Ito"
+date: "2021/3/31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(readxl)
+Sys.setenv(LANGUAGE="en")
+```
+
+# Common Basis
+```{r}
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # get a path to the target file
+country = read_excel(filename) # import the target file
+country = country%>%filter(Nos>0) # only keep target countries
+country = country$CountryCode # only keep country code
+
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # specify csv file to import.
+list = read_excel(filename) # import xlsx
+```
+
+# World Bank Database Indicator and Education Statistics
+
+```{r}
+# Import part 1
+filename = paste(getwd(),"/data/WD_Jing.xlsx",sep="") # get a path to the target file
+WB_1 = read_excel(filename) # import the target file
+
+# Import part 2
+filename = paste(getwd(),"/data/WBrail.xlsx",sep="") # get a path to the target file
+WB_2 = read_excel(filename) # import the target file
+
+# Import part 3
+filename = paste(getwd(),"/data/WBgeneral.xlsx",sep="") # get a path to the target file
+WB_3 = read_excel(filename) # import the target file
+
+# Import part 4
+filename = paste(getwd(),"/data/WBedu.xlsx",sep="") # get a path to the target file
+WB_4 = read_excel(filename) # import the target file
+WB_4 = WB_4%>%rename(`Series Name`=`Series`)
+
+# coerce columns names to be the same
+names(WB_2) = names(WB_1)
+names(WB_3) = names(WB_1)
+names(WB_4) = names(WB_1)
+
+WB = do.call("rbind", list(WB_1, WB_2, WB_3, WB_4)) # combine all rows
+
+# convert values from character to number.
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # get a path to the target file
+list = read_excel(filename) # import the target file
+list = list[,c("CountryCode", "Nos")] 
+
+WB = left_join(WB, list, by = c("Country Code" = "CountryCode")) # Add numberings to identfy which country to include
+WB = WB%>%filter(Nos > 0) # extract target countries
+WB_a = WB[,c(1:4)] # separate country infos columns
+WB_b = WB[,-c(1:4)] # separate values columns
+WB_a$ID <- seq.int(nrow(WB_a)) # add ID
+WB_b$ID <- seq.int(nrow(WB_b)) # add ID
+WB_b = WB_b %>% mutate_if(is.character,as.numeric) # convert chr to num
+WB = merge(WB_a, WB_b, by = "ID") # merge two df together
+
+variable = unique(WB$`Series Name`) # variables
+vmax = length(variable) # number of variables
+df = data.frame(Year = c(2001:2020)) # year from 2001 to 2020
+DF = list()
+
+for (c in 1:53) {
+  for (v in 1:vmax) {
+  df['CountryCode']=country[c]
+  object = WB%>%
+    filter(`Country Code`== country[c])
+  
+    object = object%>%
+      filter(`Series Name`== variable[v]) 
+    newcolumn = object[,c(6:25)]
+    newcolumn = as.data.frame(t(newcolumn))
+    df[as.character(variable[v])] = newcolumn
+    DF[[c]] = df
+  }
+}
+
+WB_all = do.call(rbind, DF)
+WB_all$joinID = paste0(WB_all$CountryCode, WB_all$Year) # add join ID
+
+```
+
+# OICA
+```{r}
+# import part 1
+filename = paste(getwd(),"/data/OICA_NewVehicle.xlsx",sep="") # specify xlsx file to import.
+OICA_1 = read_xlsx(filename) #import csv data
+
+# import part 2
+filename = paste(getwd(),"/data/OICA_VehicleUse.xlsx",sep="") # specify xlsx file to import.
+OICA_2 = read_xlsx(filename) #import csv data
+
+country_1 = OICA_1$CountryCode # list of country codes for OICA_1
+country_2 = OICA_2$CountryCode # list of country codes for OICA_2
+
+# OICA 1
+cmax = length(country_1) #53
+df = data.frame(Year = c(2005:2019)) 
+DF = list()
+
+for (c in 1:cmax) {
+  df["CountryCode"]=country_1[c]
+  object = OICA_1%>%
+    filter(CountryCode == country_1[c])
+    newcolumn = object[,c(4:18)]
+    newcolumn = as.data.frame(t(newcolumn))
+    df["Registrations or Sales of New Vehicles"] = newcolumn
+    DF[[c]] = df
+}
+
+OICA_1all = do.call(rbind, DF)
+
+# OICA 2
+cmax = length(country_2) #53
+df = data.frame(Year = c(2005:2015)) 
+DF = list()
+
+for (c in 1:cmax) {
+  df["CountryCode"]=country_2[c]
+  object = OICA_2%>%
+    filter(CountryCode == country_2[c])
+    newcolumn = object[,c(4:14)]
+    newcolumn = as.data.frame(t(newcolumn))
+    df["Vehicles in Use"] = newcolumn
+    DF[[c]] = df
+}
+
+OICA_2all = do.call(rbind, DF)
+
+# combine two dfs
+OICA_1all$joinID = paste0(OICA_1all$CountryCode, OICA_1all$Year) # create join id
+OICA_2all$joinID = paste0(OICA_2all$CountryCode, OICA_2all$Year) # create join id
+OICA_2all = OICA_2all[c("joinID", "Vehicles in Use")]
+
+OICA_all = left_join(OICA_1all, OICA_2all, by = "joinID")
+```
+
+
+# OECD
+
+```{r}
+# import part 1
+filename = paste(getwd(),"/data/DP_LIVE_31032021042107884.csv",sep="") # specify csv file to import.
+OECD_1 = read.csv(filename, check.names = FALSE) #import csv data
+OECD_1$LOCATION = OECD_1[,1] # correct column name error.
+OECD_1 = OECD_1[,-1] # delete the corrupted column.
+
+# import part 2
+filename = paste(getwd(),"/data/DP_LIVE_30032021032057760.csv",sep="") # specify csv file to import.
+OECD_2 = read.csv(filename, check.names = FALSE) #import csv data
+OECD_2$LOCATION = OECD_2[,1] # correct column name error.
+OECD_2 = OECD_2[,-1] # delete the corrupted column.
+
+# import part 3
+filename = paste(getwd(),"/data/DP_LIVE_30032021033627922.csv",sep="") # specify csv file to import.
+OECD_3 = read.csv(filename, check.names = FALSE) #import csv data
+OECD_3$LOCATION = OECD_3[,1] # correct column name error.
+OECD_3 = OECD_3[,-1] # delete the corrupted column.
+
+# import part 4
+filename = paste(getwd(),"/data/DP_LIVE_30032021023848072.csv",sep="") # specify csv file to import.
+OECD_4 = read.csv(filename, check.names = FALSE) #import csv data
+OECD_4$LOCATION = OECD_4[,1] # correct column name error.
+OECD_4 = OECD_4[,-1] # delete the corrupted column.
+
+OECD = do.call("rbind", list(OECD_1, OECD_2, OECD_3, OECD_4)) # combine all rows
+
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # specify csv file to import.
+list = read_excel(filename) # import xlsx
+
+# only keep target years 2000-2020
+OECD = OECD%>%
+  filter(TIME>=2000) %>%
+  filter(TIME<=2020)
+
+# change name of columns
+OECD = OECD%>%
+  rename("CountryCode" = "LOCATION", "Year" = "TIME")
+
+# create new column for detail variables
+OECD$INDICATOR2 = paste(OECD$INDICATOR, OECD$SUBJECT, OECD$MEASURE, sep = "_")
+
+country = list%>%filter(Nos>0) # keep only target countries
+country = unique(country$CountryCode)
+cmax = length(country) # numbers of country
+
+variable = unique(OECD$INDICATOR2) # list of variables
+vmax = length(variable) # numbers of variables
+Year = data.frame(Year = c(2001:2020)) # year from 2001 to 2020
+
+# create a base for combined df
+OECD_base = data.frame() # create empty df
+
+for (c in 1:cmax) {
+  df = Year
+  df["CountryCode"] = country[c]
+  OECD_base = rbind(OECD_base, df)
+}
+
+OECD_base$joinID = paste0(OECD_base$CountryCode, OECD_base$Year) # create join ID
+
+# extract variables and join to the base df
+OECD$joinID = paste0(OECD$CountryCode, OECD$Year) # create join ID
+OECD = OECD%>%select(joinID, CountryCode, INDICATOR2, Value) # only keep necessary columns
+df2 = OECD_base
+
+for (v in 1:vmax) {
+  df = OECD%>%filter(INDICATOR2 == variable[v])
+  df[variable[v]] = df$Value
+  df = df%>%select(joinID, variable[v])
+  df2 = left_join(df2, df, by = "joinID")
+}
+
+OECD_all = df2
+```
+
+# ASEAN
+```{r}
+# import part 1
+filename = paste(getwd(),"/data/ASEAN_1.xlsx",sep="") # specify csv file to import.
+ASEAN_1 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 2
+filename = paste(getwd(),"/data/ASEAN_2.xlsx",sep="") # specify csv file to import.
+ASEAN_2 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 3
+filename = paste(getwd(),"/data/ASEAN_3.xlsx",sep="") # specify csv file to import.
+ASEAN_3 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 4
+filename = paste(getwd(),"/data/ASEAN_4.xlsx",sep="") # specify csv file to import.
+ASEAN_4 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 5
+filename = paste(getwd(),"/data/ASEAN_5.xlsx",sep="") # specify csv file to import.
+ASEAN_5 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 6
+filename = paste(getwd(),"/data/ASEAN_6.xlsx",sep="") # specify csv file to import.
+ASEAN_6 = read_xlsx(filename, skip = 1) #import csv data
+
+# import part 7
+filename = paste(getwd(),"/data/ASEAN_7.xlsx",sep="") # specify csv file to import.
+ASEAN_7 = read_xlsx(filename, skip = 1) #import csv data
+
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # specify csv file to import.
+list = read_excel(filename) # import xlsx
+
+# create a new column and copy values
+ASEAN_1["Number of registered passenger cars (in thousand)"] = ASEAN_1$value
+ASEAN_2["Number of taxis or taxicabs (in thousand)"] = ASEAN_2$value
+ASEAN_3["Total number of registered motorcycles (in thousand)"] = ASEAN_3$value
+ASEAN_4["Number of public buses (in thousand)"] = ASEAN_4$value
+ASEAN_5["Number of traffic accident casualties (injuries) by road"] = ASEAN_5$value
+ASEAN_6["Total number of registered buses (in thousand)"] = ASEAN_6$value
+ASEAN_7["Total number of registered road motor vehicles (in thousand)"] = ASEAN_7$value
+
+# add countrycode and join ID
+for (o in 1:7) {
+  new = left_join(get(paste("ASEAN", o, sep = "_")), list[1:2], by = c("country"="Country")) # join country code by country name
+  new$CountryCode = ifelse(is.na(new$CountryCode), "VNM", new$CountryCode) # Change Viet Nam to VNM
+  new$joinID = paste0(new$CountryCode, new$year)
+  new = new[c(4,6)]
+  assign(paste0("ASEAN_",o), new)
+}
+
+# create a base of df
+DF = list()
+base = Year
+for (c in 1:53) {
+   base['CountryCode']=country[c]
+   DF[[c]] = base
+}
+
+ASEAN_all = do.call(rbind, DF)
+ASEAN_all$joinID = paste0(ASEAN_all$CountryCode, ASEAN_all$Year)
+
+# join ASEAN data to the base df
+for (o in 1:7) {
+  ASEAN_all = left_join(ASEAN_all, get(paste0("ASEAN_", o)), by = c("joinID"="joinID")) # join country code by country name
+  assign(paste0("ASEAN_",o), new)
+}
+
+ASEAN_all
+```
+
+
+
+
+
+# CIA
+```{r}
+# import data
+filename = paste(getwd(),"/data/RoadLength_CIA.xlsx",sep="") # specify csv file to import.
+CIA = read_xlsx(filename, skip = 2) #import data
+
+# create join ID
+CIA$joinID = paste0(CIA$CountryCode, CIA$Year)
+CIA = CIA[c("joinID", "the total length of the road network and includes the length of the paved and unpaved portions (km)")]
+
+# create a base of df
+DF = list()
+base = data.frame(Year = c(2001:2020)) # year from 2001 to 2020
+for (c in 1:53) {
+   base['CountryCode']=country[c]
+   DF[[c]] = base
+}
+
+CIA_all = do.call(rbind, DF)
+CIA_all$joinID = paste0(CIA_all$CountryCode, CIA_all$Year)
+
+# join data to the base df
+CIA_all = left_join(CIA_all, CIA, by = c("joinID"="joinID"))
+```
+
+# OSM
+```{r}
+# import data
+filename = paste(getwd(),"/data/OSM_ASEAN.xlsx",sep="") # specify csv file to import.
+OSM = read_xlsx(filename) #import data
+
+OSM["Year"] = 2020
+
+# create join ID
+OSM$joinID = paste0(OSM$CountryCode, OSM$Year)
+OSM = OSM[c("joinID", "Number of Charging Station", "Number of Car Sharing", "Number of Public Transport Node")]
+
+# create a base of df
+DF = list()
+base = data.frame(Year = c(2001:2020)) # year from 2001 to 2020
+for (c in 1:53) {
+   base['CountryCode']=country[c]
+   DF[[c]] = base
+}
+
+OSM_all = do.call(rbind, DF)
+OSM_all$joinID = paste0(OSM_all$CountryCode, OSM_all$Year)
+
+# join data to the base df
+OSM_all = left_join(OSM_all, OSM, by = c("joinID"="joinID"))
+```
+
+# Google Trends
+```{r}
+# import data
+filename = paste(getwd(),"/data/alltrend.csv",sep="") # specify csv file to import.
+Gtrend = read.csv(filename) #import data
+
+filename = paste(getwd(),"/data/CountryList.xlsx",sep="") # specify csv file to import.
+list = read_excel(filename) # import xlsx
+
+Gtrend = left_join(Gtrend, list[c(1,2)], by = c("country" = "Country")) # join country code
+Gtrend$CountryCode = ifelse(is.na(Gtrend$CountryCode), "VNM", Gtrend$CountryCode) # add VNM
+
+# create join ID
+Gtrend$joinID = paste0(Gtrend$CountryCode, Gtrend$year)
+Gtrend = Gtrend[c("joinID", "grab", "gmaps")]
+Gtrend = Gtrend%>%
+  rename("Google Trends for Grab" = "grab", "Google Trends for Google Maps" = "gmaps")
+
+# create a base of df
+DF = list()
+base = data.frame(Year = c(2001:2020)) # year from 2001 to 2020
+for (c in 1:53) {
+   base['CountryCode']=country[c]
+   DF[[c]] = base
+}
+
+Gtrend_all = do.call(rbind, DF)
+Gtrend_all$joinID = paste0(Gtrend_all$CountryCode, Gtrend_all$Year)
+
+# join data to the base df
+Gtrend_all = left_join(Gtrend_all, Gtrend, by = c("joinID"="joinID"))
+```
+
+## combine all
+```{r}
+# data
+WB_all     # World Bank
+OICA_all   # OICA
+ASEAN_all  # ASEAN
+CIA_all    # CIA
+Gtrend_all # Google Trends
+OECD_all   # OECD
+
+ALL = data.frame()
+ALL = left_join(WB_all, OICA_all[-c(1,2)], by="joinID")
+ALL = left_join(ALL, ASEAN_all[-c(1,2)], by="joinID")
+ALL = left_join(ALL, CIA_all[-c(1,2)], by="joinID")
+ALL = left_join(ALL, OSM, by="joinID")
+ALL = left_join(ALL, Gtrend_all[-c(1,2)], by="joinID")
+ALL = left_join(ALL, OECD_all[-c(1,2)], by="joinID")
+ALL = left_join(ALL, list[c(1,2)], by="CountryCode")
+
+cb = names(ALL) # list of column names
+writeClipboard(cb) # write to clipboard
+cb2 = readClipboard() # import reordered columns names
+ALL = ALL[cb2] # change orders
+
+ALL = ALL%>%
+  rename(
+"Accidents involving casualities (nbr)" = ROADACCID_ACCIDENTCASUAL_NBR,
+"Road accidents deaths (nbr)" = ROADACCID_DEATH_NBR,
+"Road accidents deaths (per 1MM habitants)" = ROADACCID_DEATH_1000000HAB,
+"Road accidents deaths (per 1MM vehicles)" = ROADACCID_DEATH_1000000VEH,
+"Road accidents injury (nbr)" = ROADACCID_INJURE_NBR,
+"Passenger transport by rail (MM pkm)" = PASSTRANSP_RAIL_MLN_PKM,
+"Passenger transport by road (MM pkm)" = PASSTRANSP_ROAD_MLN_PKM,
+"Passenger transport by inland (MM pkm)" = PASSTRANSP_INLAND_MLN_PKM,
+"Infrastructure investment rail (eur)" = INFRAINVEST_RAIL_EUR,
+"Infrastructure investment road (eur)" = INFRAINVEST_ROAD_EUR,
+"Infrastructure investment inland total (percentage GDp)" = INFRAINVEST_INLAND_PC_GDP,
+"Infrastructure investment sea (eur)" = INFRAINVEST_SEA_EUR,
+"Infrastructure investment air (eur)" = INFRAINVEST_AIR_EUR,
+"Infrastructure investment inland waterways (eur)" = INFRAINVEST_INLANDWATER_EUR,
+"Infrastructure maintenance rail (eur)" = INFRAMAINT_RAIL_EUR,
+"Infrastructure maintenance road (eur)" = INFRAMAINT_ROAD_EUR,
+"Infrastructure maintenance air (eur)" = INFRAMAINT_AIR_EUR,
+"Infrastructure maintenance sea (eur)" = INFRAMAINT_SEA_EUR,
+"Infrastructure maintenance inland waterways (eur)" = INFRAMAINT_INLANDWATER_EUR
+)
+
+write.csv(ALL, "ALLvariables.csv")
+```
+
+# Variable Availability Table
+```{r}
+availability = ALL
+availability[is.na(availability)] = 0
+
+availability1 = availability[-c(1,3)] %>%
+  group_by(CountryCode) %>%
+  summarise_all(funs(sum))
+
+availability2 = left_join(availability1, list[c(1,2,4)], by = "CountryCode")
+
+availability2 = availability2%>%
+  arrange(-desc(Group), -desc(Country))
+
+availability2[-c(1,61,62)] <-
+  lapply(availability2[-c(1,61,62)], function(x) {
+    ifelse(x == 0, "X","O")
+  })
+
+write.csv(availability2, "ALL_availability.csv")
+```
+
+, 
